@@ -43,7 +43,7 @@ void setLedState(LedState newState) {
 
 void updateLED() {
   unsigned long currentTime = millis();
-  
+
   switch (currentLedState) {
     case LED_ON:
       digitalWrite(ledPin, HIGH);  // 長亮
@@ -62,10 +62,11 @@ void updateLED() {
       }
       break;
     case LED_RECORDING:
-      if (currentTime - lastLedToggle >= 500) {  // 錄音時每秒閃兩次
-        digitalWrite(ledPin, !digitalRead(ledPin));
-        lastLedToggle = currentTime;
-      }
+    if (currentTime - lastLedToggle >= 500) {  // 錄音時每秒閃兩次
+      digitalWrite(ledPin, !digitalRead(ledPin));
+      lastLedToggle = currentTime;
+      Serial.println("LED正在閃爍中 (錄音模式)");  // 加入此行來確定有進入這段程式碼
+    }
       break;
     case LED_FAST_BLINK:
       if (currentTime - lastLedToggle >= 333) {  // 快速閃爍，每秒3次
@@ -108,7 +109,7 @@ void loop() {
   unsigned long currentTime = millis();
 
   int touchState = digitalRead(touchPin);
-  
+
   // 檢查 TTP223 的長按，若長按超過 10 秒，則重置 WiFi 設定
   if (touchState == HIGH) {
     if (currentTime - touchStartTime > 10000) {  // 長按超過10秒
@@ -139,10 +140,10 @@ void configModeCallback(WiFiManager *myWiFiManager) {
 }
 
 void streamAudio() {
-  // I2S 錄音與數據傳輸邏輯
   int16_t samples[i2sBufSize];
   size_t bytesRead = I2S.read(samples, sizeof(samples));
 
+  // 檢查 WiFi 狀態
   if (!client.connected()) {
     if (!client.connect(serverHost, atoi(serverPort))) {
       Serial.println("連接到伺服器失敗");
@@ -150,44 +151,45 @@ void streamAudio() {
     }
   }
 
-  String boundary = "----ESP8266Boundary";  // 定義邊界字符串
+  Serial.println("已連接到伺服器，開始上傳音訊");
 
-  // 發送 HTTP POST 請求頭
+  String boundary = "----ESP8266Boundary";
+
   client.print(String("POST ") + serverPath + " HTTP/1.1\r\n" +
                "Host: " + serverHost + "\r\n" +
                "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n" +
                "Connection: keep-alive\r\n\r\n");
 
-  // 發送表單數據頭部，告知伺服器這是文件數據
   client.print("--" + boundary + "\r\n");
   client.print("Content-Disposition: form-data; name=\"audio\"; filename=\"audio.raw\"\r\n");
   client.print("Content-Type: application/octet-stream\r\n\r\n");
 
-  // 發送音頻數據
+  // 傳輸音訊數據
   client.write((uint8_t*)samples, bytesRead);
+  Serial.print("已上傳的音訊大小 (bytes): ");
+  Serial.println(bytesRead);  // 打印上傳的音訊大小
 
-  // 結束表單數據
   client.print("\r\n--" + boundary + "--\r\n");
 
-  // 等待伺服器回應
   unsigned long timeout = millis();
   while (client.available() == 0) {
-    if (millis() - timeout > 5000) {  // 設定5秒超時
+    if (millis() - timeout > 5000) {
       Serial.println("伺服器回應超時！");
       client.stop();
       return;
     }
   }
 
-  // 讀取並打印伺服器回應
   while (client.available()) {
-    String response = client.readStringUntil('\r');  // 讀取伺服器回應的一行
+    String response = client.readStringUntil('\r');
     Serial.print("伺服器回應: ");
-    Serial.println(response);  // 將回應打印到串口
+    Serial.println(response);  // 打印伺服器回應
   }
 
-  client.stop();  // 關閉連接
+  client.stop();
+  Serial.println("上傳完成");
 }
+
 
 
 void startRecording() {
